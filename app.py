@@ -5,15 +5,12 @@ import json
 import re
 from docx import Document
 import PyPDF2
-from openai import OpenAI
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
 app = Flask(__name__)
 CORS(app)
-
-# Configuração do OpenAI será feita sob demanda
 
 class DocumentProcessor:
     def __init__(self):
@@ -49,15 +46,11 @@ class DocumentProcessor:
     
     def extract_text_from_doc(self, file_path):
         """Extrai texto de arquivo DOC (limitado)"""
-        # Para arquivos DOC antigos, seria necessário usar python-docx2txt ou outra biblioteca
-        # Por simplicidade, retornamos uma mensagem informativa
         return "Arquivo DOC detectado. Para melhor suporte, converta para DOCX ou PDF."
     
     def clean_text(self, text):
         """Limpa e normaliza o texto"""
-        # Remove quebras de linha excessivas
         text = re.sub(r'\n+', '\n', text)
-        # Remove espaços extras
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
     
@@ -112,7 +105,6 @@ class DocumentProcessor:
                         'source': f"{filename} (parte {i+1})"
                     })
         
-        # Criar vetores TF-IDF dos documentos
         if self.documents:
             texts = [doc['text'] for doc in self.documents]
             self.document_vectors = self.vectorizer.fit_transform(texts)
@@ -124,18 +116,13 @@ class DocumentProcessor:
         if not self.processed or not self.documents:
             return []
         
-        # Vetorizar a consulta
         query_vector = self.vectorizer.transform([query])
-        
-        # Calcular similaridade
         similarities = cosine_similarity(query_vector, self.document_vectors).flatten()
-        
-        # Obter os top_k mais similares
         top_indices = np.argsort(similarities)[-top_k:][::-1]
         
         relevant_chunks = []
         for idx in top_indices:
-            if similarities[idx] > 0.1:  # Threshold mínimo de similaridade
+            if similarities[idx] > 0.1:
                 relevant_chunks.append({
                     'text': self.documents[idx]['text'],
                     'source': self.documents[idx]['source'],
@@ -150,6 +137,11 @@ doc_processor = DocumentProcessor()
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/health')
+def health():
+    """Healthcheck simples para Railway"""
+    return 'OK', 200
 
 @app.route('/process_documents', methods=['POST'])
 def process_documents():
@@ -171,6 +163,10 @@ def process_documents():
 def chat():
     """Endpoint principal do chat"""
     try:
+        # Inicializar OpenAI apenas quando necessário
+        from openai import OpenAI
+        client = OpenAI()
+        
         data = request.get_json()
         user_question = data.get('question', '').strip()
         
@@ -181,12 +177,15 @@ def chat():
             })
         
         if not doc_processor.processed:
+            # Processar documentos automaticamente se ainda não foram processados
+            doc_processor.process_documents()
+            
+        if not doc_processor.processed or not doc_processor.documents:
             return jsonify({
                 'success': False,
-                'message': 'Documentos não foram processados. Execute o processamento primeiro.'
+                'message': 'Nenhum documento disponível para consulta.'
             })
         
-        # Encontrar chunks relevantes
         relevant_chunks = doc_processor.find_relevant_chunks(user_question, top_k=3)
         
         if not relevant_chunks:
@@ -196,10 +195,8 @@ def chat():
                 'sources': []
             })
         
-        # Preparar contexto para o LLM
         context = "\n\n".join([f"Fonte: {chunk['source']}\nConteúdo: {chunk['text']}" for chunk in relevant_chunks])
         
-        # Prompt para o LLM
         system_prompt = """Você é um assistente especializado em documentos de condomínio. 
         Responda APENAS com base nas informações fornecidas no contexto abaixo. 
         Se a informação não estiver no contexto, diga que não encontrou a informação nos documentos.
@@ -213,9 +210,8 @@ def chat():
         
         Resposta:"""
         
-        # Chamar o LLM
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -256,8 +252,5 @@ def status():
     })
 
 if __name__ == '__main__':
-    # Processar documentos na inicialização
-    print("Iniciando processamento de documentos...")
-    doc_processor.process_documents()
-    
+    print("Iniciando servidor Flask...")
     app.run(debug=False, host='0.0.0.0', port=5000)
