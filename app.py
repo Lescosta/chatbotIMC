@@ -13,8 +13,7 @@ import numpy as np
 app = Flask(__name__)
 CORS(app)
 
-# Configuração do OpenAI
-client = OpenAI()
+# Configuração do OpenAI será feita sob demanda
 
 class DocumentProcessor:
     def __init__(self):
