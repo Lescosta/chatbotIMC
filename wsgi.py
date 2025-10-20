@@ -10,12 +10,7 @@ import sys
 project_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_dir)
 
-from app import app, doc_processor
-
-# Initialize document processing on startup
-print("Initializing document processing...")
-doc_processor.process_documents()
-print(f"Processed {len(doc_processor.documents)} document chunks")
+from app import app
 
 # WSGI application
 application = app
